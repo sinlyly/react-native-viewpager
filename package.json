@@ -26,6 +26,6 @@
   },
   "homepage": "https://github.com/race604/react-native-viewpager#readme",
   "dependencies": {
-    "prop-types": "^15.5.10"
+    "prop-types": "^15.6.0"
   }
 }

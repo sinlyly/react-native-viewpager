@@ -1,105 +1,125 @@
 'use strict';
 
-var React = require('react');
-var ReactNative = require('react-native');
-var {
-  StyleSheet,
-  TouchableOpacity,
-  View,
-  Animated,
-} = ReactNative;
-let PropTypes = require('prop-types');
+function defaultGetPageData(
+  dataBlob: any,
+  pageID: number | string,
+): any {
+  return dataBlob[pageID];
+}
 
-const DOT_SIZE = 6;
-const DOT_SAPCE = 4;
+type differType = (data1: any, data2: any) => bool;
 
-var styles = StyleSheet.create({
-  tab: {
-    alignItems: 'center',
-  },
+type ParamType = {
+  pageHasChanged: differType;
+  getPageData: ?typeof defaultGetPageData;
+}
 
-  tabs: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+class ViewPagerDataSource {
 
-  dot: {
-    width: DOT_SIZE,
-    height: DOT_SIZE,
-    borderRadius: DOT_SIZE / 2,
-    backgroundColor: '#E0E1E2',
-    marginLeft: DOT_SAPCE,
-    marginRight: DOT_SAPCE,
-  },
+  constructor(params: ParamType) {
+    this._getPageData = params.getPageData || defaultGetPageData;
+    this._pageHasChanged = params.pageHasChanged;
 
-  curDot: {
-    position: 'absolute',
-    width: DOT_SIZE,
-    height: DOT_SIZE,
-    borderRadius: DOT_SIZE / 2,
-    backgroundColor: '#80ACD0',
-    margin: DOT_SAPCE,
-    bottom: 0,
-  },
-});
-
-class DefaultViewPageIndicator extends React.Component {
-  static propTypes = {
-    goToPage: PropTypes.func,
-    activePage: PropTypes.number,
-    pageCount: PropTypes.number
+    this.pageIdentities = [];
   }
 
-  constructor() {
-    super()
-    this.state = {
-      viewWidth: 0,
-    };
-    this.onLayout = this.onLayout.bind(this)
-  }
+  cloneWithPages(
+      dataBlob: any,
+      pageIdentities: ?Array<string>,
+  ): ViewPagerDataSource {
 
-  renderIndicator(page) {
-    return (
-      <TouchableOpacity style={styles.tab} key={'idc_' + page} onPress={() => this.props.goToPage(page)}>
-        <View style={styles.dot} />
-      </TouchableOpacity>
-    );
-  }
-
-  onLayout(event) {
-    var viewWidth = event.nativeEvent.layout.width;
-    if (!viewWidth || this.state.viewWidth === viewWidth) {
-      return;
-    }
-    this.setState({
-      viewWidth: viewWidth,
+    var newSource = new ViewPagerDataSource({
+      getPageData: this._getPageData,
+      pageHasChanged: this._pageHasChanged,
     });
-  }
 
-  render() {
-    let pageCount = this.props.pageCount;
-    let itemWidth = DOT_SIZE + (DOT_SAPCE * 2);
-    let offsetX = itemWidth * (this.props.activePage - this.props.scrollOffset);
-    let left = this.props.scrollValue.interpolate({
-      inputRange: [0, 1], outputRange: [offsetX, offsetX + itemWidth]
-    })
+    newSource._dataBlob = dataBlob;
 
-    let indicators = [];
-    for (let i = 0; i < pageCount; i++) {
-      indicators.push(this.renderIndicator(i))
+    if (pageIdentities) {
+      newSource.pageIdentities = pageIdentities;
+    } else {
+      newSource.pageIdentities = Object.keys(dataBlob);
     }
 
-    return (
-      <View
-        style={styles.tabs}
-        onLayout={this.onLayout}
-      >
-        {indicators}
-        <Animated.View style={[styles.curDot, {left}]} />
-      </View>
+    newSource._cachedPageCount = newSource.pageIdentities.length;
+    newSource._calculateDirtyPages(
+      this._dataBlob,
+      this.pageIdentities
     );
+    return newSource;
   }
-};
 
-module.exports = DefaultViewPageIndicator;
+  getPageCount(): number {
+    return this._cachedPageCount;
+  }
+
+  /**
+   * Returns if the row is dirtied and needs to be rerendered
+   */
+  pageShouldUpdate(pageIndex: number): bool {
+    var needsUpdate = this._dirtyPages[pageIndex];
+    return needsUpdate;
+  }
+
+  /**
+   * Gets the data required to render the page
+   */
+  getPageData(pageIndex: number): any {
+    if (!this.getPageData) {
+      return null;
+    }
+    var pageID = this.pageIdentities[pageIndex];
+    return this._getPageData(this._dataBlob,pageID);
+  }
+
+  /**
+   * Private members and methods.
+   */
+
+  _getPageData: typeof defaultGetPageData;
+  _pageHasChanged: differType;
+
+  _dataBlob: any;
+  _dirtyPages: Array<bool>;
+  _cachedRowCount: number;
+
+  pageIdentities: Array<string>;
+
+  _calculateDirtyPages(
+    prevDataBlob: any,
+    prevPageIDs: Array<string>,
+  ): void {
+    // construct a hashmap of the existing (old) id arrays
+    var prevPagesHash = keyedDictionaryFromArray(prevPageIDs);
+    this._dirtyPages = [];
+
+    var dirty;
+    for (var sIndex = 0; sIndex < this.pageIdentities.length; sIndex++) {
+      var pageID = this.pageIdentities[sIndex];
+      dirty = !prevPagesHash[pageID];
+      var pageHasChanged = this._pageHasChanged
+      if (!dirty && pageHasChanged) {
+        dirty = pageHasChanged(
+          this._getPageData(prevDataBlob, pageID),
+          this._getPageData(this._dataBlob, pageID)
+        );
+      }
+      this._dirtyPages.push(!!dirty);
+    }
+  }
+
+}
+
+function keyedDictionaryFromArray(arr) {
+  if (arr.length === 0) {
+    return {};
+  }
+  var result = {};
+  for (var ii = 0; ii < arr.length; ii++) {
+    var key = arr[ii];
+    result[key] = true;
+  }
+  return result;
+}
+
+module.exports = ViewPagerDataSource;
